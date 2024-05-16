@@ -11,47 +11,43 @@ CSRA    EQU     $effc03       * de seleccion de reloj A (escritura)
 CRA     EQU     $effc05       * de control A (escritura)
 TBA     EQU     $effc07       * buffer transmision A (escritura)
 RBA     EQU     $effc07       * buffer recepcion A  (lectura)
-ACR		EQU		$effc09	      * de control auxiliar
+ACR	EQU	$effc09	      * de control auxiliar
 IMR     EQU     $effc0B       * de mascara de interrupcion A (escritura)
 ISR     EQU     $effc0B       * de estado de interrupcion A (lectura)
 MR1B    EQU     $effc11       * de modo B (escritura)
 MR2B    EQU     $effc11       * de modo B (2º escritura)
 CRB     EQU     $effc15	      * de control B (escritura)
 TBB     EQU     $effc17       * buffer transmision B (escritura)
-RBB		EQU		$effc17       * buffer recepcion B (lectura)
+RBB	EQU	$effc17       * buffer recepcion B (lectura)
 SRB     EQU     $effc13       * de estado B (lectura)
-CSRB	EQU		$effc13       * de seleccion de reloj B (escritura)
-IVR		EQU		$effc19		  * de vector interrupción
+CSRB	EQU	$effc13       * de seleccion de reloj B (escritura)
+IVR	EQU	$effc19		  * de vector interrupción
 
-CR		EQU		$0D			* Carriage Return
-LF		EQU		$0A			* Line Feed
-FLAGT	EQU		2			* Flag de transmisión
+CR	EQU	$0D			* Carriage Return
+LF	EQU	$0A			* Line Feed
+FLAGT	EQU	2			* Flag de transmisión
 FLAGR   EQU     0		    * Flag de recepción
 
 IMRC	DC.B	0	* Copia IMR para acceder en modo lectura
-TAM_A	DC.L	0	* Número de caracteres a transmitir en A
-TAM_B	DC.L	0	* Número de caracteres a transmitir en B
 
 **************************** INIT *************************************************************
 INIT:		MOVE.B          #%00000000,ACR      * Velocidad = 38400 bps.
-			MOVE.B          #%00100010,IMR		 * Se habilitan interrupciones en A y B siempre que haya un caracter
-			MOVE.B		#%00100010,IMRC		* Se establece la copia del IMR al mismo valor que el IMR
-			MOVE.B		#%01000000,IVR	* Se inicializa el vecto de interrupciones a 40
-			MOVE.L		#RTI,$100			* Inicializa RTI en la tabla de vectores de interrupción
-			* Línea A
-			MOVE.B          #%00010000,CRA      * Reinicia el puntero MR1
-			MOVE.B          #%00000011,MR1A     * 8 bits por caracter.
-			MOVE.B          #%00000000,MR2A     * Eco desactivado.
-			MOVE.B          #%11001100,CSRA     * Velocidad = 38400 bps.
-			MOVE.L		#0,(TAM_A)	    * Inicializa el número de caracteres leídos en A a 0
-			* Línea B
-			MOVE.B          #%00010000,CRB      * Reinicia el puntero MR1
-			MOVE.B          #%00000011,MR1B     * 8 bits por caracter.
-			MOVE.B          #%00000000,MR2B     * Eco desactivado.
-			MOVE.B          #%11001100,CSRB     * Velocidad = 38400 bps.
-			MOVE.L		#0,(TAM_B)	    * Inicializa el número de caracteres leídos en B a 0
-			BSR				INI_BUFS			* Llama la subrutina ini_bufs
-			RTS
+		MOVE.B          #%00100010,IMR		 * Se habilitan interrupciones en A y B siempre que haya un caracter
+		MOVE.B		#%00100010,IMRC		* Se establece la copia del IMR al mismo valor que el IMR
+		MOVE.B		#%01000000,IVR	* Se inicializa el vecto de interrupciones a 40
+		MOVE.L		#RTI,$100			* Inicializa RTI en la tabla de vectores de interrupción
+		* Línea A
+		MOVE.B          #%00010101,CRA      * Activa transmisión y recepción en A
+		MOVE.B          #%00000011,MR1A     * 8 bits por caracter.
+		MOVE.B          #%00000000,MR2A     * Eco desactivado.
+		MOVE.B          #%11001100,CSRA     * Velocidad = 38400 bps.
+		* Línea B
+		MOVE.B          #%00010101,CRB      * Activa transmisión y recepción en B
+		MOVE.B          #%00000011,MR1B     * 8 bits por caracter.
+		MOVE.B          #%00000000,MR2B     * Eco desactivado.
+		MOVE.B          #%11001100,CSRB     * Velocidad = 38400 bps.
+		BSR		INI_BUFS	    * Llama la subrutina ini_bufs
+		RTS
 **************************** FIN INIT *********************************************************
 
 **************************** PRINT ************************************************************
@@ -75,21 +71,16 @@ PRLIN_B:	MOVE.L		#3,D4		* Inicializa D4 a 3 (se usará para el descriptor en ESC
 
 BUC_PR:		CMP.W		#0,D3		* Comprueba si el tamaño del bloque ha llegado a 0
 			BEQ		FIN_PR		* Si ha llegado a 0 termina el bucle
+			MOVE.B		(A1)+,D1	* Guarda el caracter actual en D1
 			MOVE.L		A1,-4(A6)	* Se guarda la variable del buffer
 			MOVE.L		D4,-8(A6)	* Se guarda la variable del descriptor
 			MOVE.W		D3,-10(A6)	* Se guarda la variable tamaño del bloque
 			MOVE.L		D5,-14(A6)	* Se guarda la variable número de caracteres leídos
-			MOVE.B		(A1)+,D1	* Se guarda el caracter actual en D1
 			MOVE.L		D4,D0		* Guarda el descriptor en en D0 para su uso futuro
 			BSR		ESCCAR
 			CMP.L		#-1,D0		* Comprueba está libre o no
 			BEQ		FIN_PR		* Si no está libre se acaba
-			CMP.W		#0,D2		* Comrpueba si el descriptor es 0
-			BNE		ESC_LB		* Si es 0 ha escrito en la línea B
-			ADD.L		#1,(TAM_A)	* Aumenta la cantidad de caracteres a escribir por 1 en la línea A
-			BRA		ESC_LA
-ESC_LB:			ADD.L		#1,(TAM_B)	* Aumenta la cantidad de caracteres a escribir por 1 en la línea B
-ESC_LA:			MOVE.L		-4(A6),A1	* Se recupera la variable del buffer
+			MOVE.L		-4(A6),A1	* Se recupera la variable del buffer
 			MOVE.L		-8(A6),D4	* Se recupera la variable del descriptor
 			MOVE.W		-10(A6),D3	* Se recupera la variable tamaño del bloque
 			MOVE.L		-14(A6),D5	* Se recupera la variable número de caracteres leídos
@@ -169,9 +160,13 @@ FIN_SC:		MOVE.L		D4,D0		* Coloca la variable caracteres leídos en D0
 
 ****************************** RTI **********************************************************
 
-RTI: 		MOVE.L		D0,-(A7)			* Guarda el valor anterior de D0
-			MOVE.L		D1,-(A7)			* Guarda el valor anterior de D1
-	 		MOVE.B		ISR,D2		* Copia el ISR en D2
+RTI: 		LINK		A6,#-20
+			MOVE.L		D0,-4(A6)			* Guarda el valor anterior de D0
+			MOVE.L		D1,-8(A6)			* Guarda el valor anterior de D1
+	 		MOVE.L		D2,-12(A6)
+			MOVE.L		D6,-16(A6)
+			MOVE.L		A0,-20(A6)
+			MOVE.B		ISR,D2		* Copia el ISR en D2
 			AND.B		IMRC,D2		* Une la copia del IMR con el ISR
 			BTST		#0,D2				* Comprueba el estado del bit 0 de ISR
 			BNE		TR_LINA
@@ -200,10 +195,7 @@ TR_LINA:	MOVE.L		#2,D0				* Inicializa D0 a el buffer de transmisión de la line
 			CMP.L		#-1,D0				* Comprueba si LEECAR  ha fallado
 			BEQ		FIN_TRA				* Acaba la transmisión en línea A
 			MOVE.B		D0,TBA				* Pone el caracter leído en la línea de transmisión
-			SUB.L		#1,(TAM_A)			* Reduce la cantidad de caracteres a transmitir por 1
-			CMP.L		#0,(TAM_A)			* Comprueba que la cantidad de caracteres a transmitir son 0
 			BNE		FIN_RTI
-			BRA		FIN_TRA
 
 FIN_TRA:		MOVE.B		IMRC,D6				* Pone la copia de IMR en D6
 			BCLR		#0,D6				* Pone el bit 0 de D6 a 0
@@ -216,10 +208,7 @@ TR_LINB:	MOVE.L		#3,D0				* Inicializa D0 a el buffer de transmisión de la lien
 			CMP.L		#-1,D0				* Comprueba si LEECAR  ha fallado
 			BEQ		FIN_TRB				* Acaba la transmisión en línea B
 			MOVE.B		D0,TBB				* Pone el caracter leído en la línea de transmisión
-			SUB.L		#1,(TAM_B)			* Reduce la cantidad de caracteres a transmitir por 1
-			CMP.L		#0,(TAM_B)			* Comprueba que la cantidad de caracteres a transmitir son 0
-			BNE		FIN_RTI
-			BRA		FIN_TRB
+			BRA		FIN_RTI
 
 FIN_TRB:		MOVE.B		IMRC,D6				* Pone la copia IMR en D6
 			BCLR		#4,D6				* Pone el bit 4 de D6 a 0
@@ -228,9 +217,13 @@ FIN_TRB:		MOVE.B		IMRC,D6				* Pone la copia IMR en D6
 			BRA		FIN_RTI
 
 	
-FIN_RTI:	MOVE.L		(A7)+,D0		* Recupera el valor anterior de D0
-			MOVE.L		(A7)+,D1		* Recupera el valor anterior de D1		
-			RTS
+FIN_RTI:	MOVE.L		-4(A6),D0		* Recupera el valor anterior de D0
+			MOVE.L		-8(A6),D1		* Recupera el valor anterior de D1			
+			MOVE.L		-12(A6),D2
+			MOVE.L		-16(A6),D6
+			MOVE.L		-20(A6),A0
+			UNLK		A6
+			RTE
 
 
 
