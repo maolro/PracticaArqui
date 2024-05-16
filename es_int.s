@@ -28,31 +28,37 @@ LF		EQU		$0A			* Line Feed
 FLAGT	EQU		2			* Flag de transmisión
 FLAGR   EQU     0		    * Flag de recepción
 
+IMRC	DC.B	0	* Copia IMR para acceder en modo lectura
+TAM_A	DC.L	0	* Número de caracteres a transmitir en A
+TAM_B	DC.L	0	* Número de caracteres a transmitir en B
 
 **************************** INIT *************************************************************
 INIT:		MOVE.B          #%00000000,ACR      * Velocidad = 38400 bps.
-			MOVE.B          #%00100010,IMR      * Se habilitan interrupciones en A y B siempre que haya un caracter
-			MOVE.B			#$40,IVR				* Se inicializa el vecto de interrupciones a 40
-			MOVE.L			#RTI,$100			* Inicializa RTI en la tabla de vectores de interrupción
+			MOVE.B          #%00100010,IMR		 * Se habilitan interrupciones en A y B siempre que haya un caracter
+			MOVE.B		#%00100010,IMRC		* Se establece la copia del IMR al mismo valor que el IMR
+			MOVE.B		#%01000000,IVR	* Se inicializa el vecto de interrupciones a 40
+			MOVE.L		#RTI,$100			* Inicializa RTI en la tabla de vectores de interrupción
 			* Línea A
 			MOVE.B          #%00010000,CRA      * Reinicia el puntero MR1
 			MOVE.B          #%00000011,MR1A     * 8 bits por caracter.
 			MOVE.B          #%00000000,MR2A     * Eco desactivado.
 			MOVE.B          #%11001100,CSRA     * Velocidad = 38400 bps.
+			MOVE.L		#0,(TAM_A)	    * Inicializa el número de caracteres leídos en A a 0
 			* Línea B
 			MOVE.B          #%00010000,CRB      * Reinicia el puntero MR1
 			MOVE.B          #%00000011,MR1B     * 8 bits por caracter.
 			MOVE.B          #%00000000,MR2B     * Eco desactivado.
 			MOVE.B          #%11001100,CSRB     * Velocidad = 38400 bps.
+			MOVE.L		#0,(TAM_B)	    * Inicializa el número de caracteres leídos en B a 0
 			BSR				INI_BUFS			* Llama la subrutina ini_bufs
 			RTS
 **************************** FIN INIT *********************************************************
 
 **************************** PRINT ************************************************************
 PRINT:		LINK		A6,#-14		* Crea marco de pila auxiliar
-			MOVE.L		4(A7),A1	* Se guarda el buffer en A1
-			MOVE.W		8(A7),D2	* Se guarda el descriptor en D2
-			MOVE.W		10(A7),D3	* Se guarda el tamaño del bloque en D3
+			MOVE.L		8(A6),A1	* Se guarda el buffer en A1
+			MOVE.W		12(A6),D2	* Se guarda el descriptor en D2
+			MOVE.W		14(A6),D3	* Se guarda el tamaño del bloque en D3
 			CLR.L		D0			* Se inicializa D0 a 0
 			CLR.L		D4			* Se inicializa el descriptor de ESCCAR a 0
 			CLR.L		D5			* Se crea la variable D5 para almacenar el tamaño
@@ -78,26 +84,47 @@ BUC_PR:		CMP.W		#0,D3		* Comprueba si el tamaño del bloque ha llegado a 0
 			BSR		ESCCAR
 			CMP.L		#-1,D0		* Comprueba está libre o no
 			BEQ		FIN_PR		* Si no está libre se acaba
-			MOVE.L		-4(A6),A1	* Se recupera la variable del buffer
+			CMP.W		#0,D2		* Comrpueba si el descriptor es 0
+			BNE		ESC_LB		* Si es 0 ha escrito en la línea B
+			ADD.L		#1,(TAM_A)	* Aumenta la cantidad de caracteres a escribir por 1 en la línea A
+			BRA		ESC_LA
+ESC_LB:			ADD.L		#1,(TAM_B)	* Aumenta la cantidad de caracteres a escribir por 1 en la línea B
+ESC_LA:			MOVE.L		-4(A6),A1	* Se recupera la variable del buffer
 			MOVE.L		-8(A6),D4	* Se recupera la variable del descriptor
 			MOVE.W		-10(A6),D3	* Se recupera la variable tamaño del bloque
 			MOVE.L		-14(A6),D5	* Se recupera la variable número de caracteres leídos
 			ADD.L		#1,D5		* Incrementa D5 (resultado) por 1
-			SUB.W		#1,D3		* Le resta 1 al tamaño del bloque		
+			SUB.W		#1,D3		* Le resta 1 al tamaño del bloque
 			BNE		BUC_PR 
+			BRA		FIN_PR
 
-ERROR_P:	MOVE.L		#$FFFFFFFF,D5	* Coloca el estado error en D0 al no haber caracteres
+ERROR_P:	MOVE.L		#$FFFFFFFF,D0	* Coloca el estado error en D0 al no haber caracteres
+		BRA		NOINT
 
 FIN_PR:	MOVE.L		D5,D0	* Se pasa el resultado a D0
-			UNLK		A6		* Se recupera el valor de la pila
+			CMP.L		#0,D0		* Se comprueba la cantidad de caracteres para imprimir
+			BEQ		NOINT		* Si no hay ninguno se acaba
+			MOVE.B		IMRC,D6		* Se pone la copia del IMR en D6 para su posterior edición
+			MOVE.W		SR,D7		* Se guarda el valor anterior del SR
+			MOVE.W		#$2700,SR	* Se inhiben las interrupciones
+			CMP.L		#3,D4		* Se comprueba el descriptor para editar el IMR
+			BEQ		IMR_LB
+			BSET		#0,D6		* Se pone el bit 0 a 1
+			BRA		SETIMR
+IMR_LB:			BSET		#4,D6		* Se pone el bit 4 a 1
+SETIMR:			MOVE.B		D6,IMRC		* Se modifica copia IMR
+			MOVE.B		D6,IMR		* Se modifica IMR
+			MOVE.W		D7,SR		* Se recupera el valor anterior del SR
+
+NOINT:			UNLK		A6		* Se recupera el valor de la pila
 			RTS
 **************************** FIN PRINT ********************************************************
 
 **************************** SCAN ************************************************************
 SCAN:		LINK		A6,#-14		* Crea marco de pila auxiliar
-			MOVE.L		4(A7),A1	* Se guarda el buffer en A1
-			MOVE.W		8(A7),D2	* Se guarda el descriptor en D2
-			MOVE.W		10(A7),D3	* Se guarda el tamaño del bloque en D3
+			MOVE.L		8(A6),A1	* Se guarda el buffer en A1
+			MOVE.W		12(A6),D2	* Se guarda el descriptor en D2
+			MOVE.W		14(A6),D3	* Se guarda el tamaño del bloque en D3
 			CLR.L		D0			* Se inicializa D0 a 0
 			SUB.L		#8,A7		* Reserva espacio en el marco de pila auxiliar
 			CLR.L		D4			* Se inicializa D4 a 0 (se usará para el número de caracteres leídos)
@@ -123,13 +150,14 @@ BUC_SCAN:	CMP.W		#0,D3			* Comprueba si el tamaño del bloque ha llegado a 0
 			CMP.L		#-1,D0			* Comprueba si hay caracteres o no
 			BEQ		FIN_SC			* Si no hay más caracteres para leer se acaba
 			MOVE.L		-4(A6),A1		* Se recupera el buffer en A1
-			MOVE.W		-8(A6),D5		* Recupera la variable descriptor
+			MOVE.L		-8(A6),D5		* Recupera la variable descriptor
 			MOVE.W		-10(A6),D3		* Se recupera el tamaño del bloque en D3
 			MOVE.W		-12(A6),D4		* Se recuperan los caracteres leídos en D3
 			MOVE.B		D0,(A1)+		* Si hay un caracter lo copia al buffer A1 y lo avanza
 			ADD.L		#1,D4			* Incrementa los caracteres leídos por 1
 			SUB.W		#1,D3			* Le resta 1 al tamaño	
 			BNE		BUC_SCAN		* Salta al inicio del bucle
+			BRA		FIN_SC
 
 ERROR_S:	MOVE.L		#$FFFFFFFF,D4	* Coloca el estado error en D0 al no haber leído caracteres
 
@@ -143,44 +171,61 @@ FIN_SC:		MOVE.L		D4,D0		* Coloca la variable caracteres leídos en D0
 
 RTI: 		MOVE.L		D0,-(A7)			* Guarda el valor anterior de D0
 			MOVE.L		D1,-(A7)			* Guarda el valor anterior de D1
-	 
-BUCLE_RTI:	BTST		#0,ISR				* Comprueba el estado del bit 0 de ISR
+	 		MOVE.B		ISR,D2		* Copia el ISR en D2
+			AND.B		IMRC,D2		* Une la copia del IMR con el ISR
+			BTST		#0,D2				* Comprueba el estado del bit 0 de ISR
 			BNE		TR_LINA
-			BTST		#1,ISR				* Comprueba el estado del bit 1 de ISR
+			BTST		#1,D2				* Comprueba el estado del bit 1 de ISR
 			BNE		RC_LINA
-			BTST		#4,ISR				* Comprueba el estado del bit 4 de ISR
+			BTST		#4,D2				* Comprueba el estado del bit 4 de ISR
 			BNE		TR_LINB
-			BTST		#5,ISR				* Comprueba el estado del bit 5 de ISR
-			BNE			RC_LINB
-			BRA			FIN_RTI				* Acaba la RTI
+			BTST		#5,D2				* Comprueba el estado del bit 5 de ISR
+			BNE		RC_LINB
+			BRA		FIN_RTI				* Acaba la RTI
 			
-RC_LINA:	MOVE.B		RBA,D1				* Pone el caracter leído en D1 para su futuro uso
+RC_LINA:	CLR.B		D1
+			MOVE.B		RBA,D1				* Pone el caracter leído en D1 para su futuro uso
 			CLR.L		D0					* Inicializa D0 a todo ceros
 			BSR		ESCCAR
-			CMP.L		#-1,D0				* Comprueba si ESCCAR ha fallado
-			BEQ		FIN_RTI				* Acaba la RTI
-			BRA		BUCLE_RTI			* Continúa con la RTI
+			BRA		FIN_RTI				* Acaba la RTI
 			
-RC_LINB:	MOVE.B		RBB,D1				* Pone el caracter leído en la Pila
+RC_LINB:	CLR.B		D1
+			MOVE.B		RBB,D1				* Pone el caracter leído en la Pila
 			MOVE.L		#1,D0				* Pone D0 a 1 para su futuro uso
 			BSR		ESCCAR
-			CMP.L		#-1,D0				* Comprueba si ESCCAR ha fallado
-			BEQ		FIN_RTI				* Acaba la RTI
-			BRA		BUCLE_RTI			* Continúa con la RTI
+			BRA		FIN_RTI				* Acaba la RTI
 			
 TR_LINA:	MOVE.L		#2,D0				* Inicializa D0 a el buffer de transmisión de la linea A
 			BSR		LEECAR
-			CMP.L		#-1,D0				* Comprueba si ESCCAR ha fallado
-			BEQ		FIN_RTI				* Acaba la RTI
+			CMP.L		#-1,D0				* Comprueba si LEECAR  ha fallado
+			BEQ		FIN_TRA				* Acaba la transmisión en línea A
 			MOVE.B		D0,TBA				* Pone el caracter leído en la línea de transmisión
-			BRA		BUCLE_RTI			* Continúa con la RTI
+			SUB.L		#1,(TAM_A)			* Reduce la cantidad de caracteres a transmitir por 1
+			CMP.L		#0,(TAM_A)			* Comprueba que la cantidad de caracteres a transmitir son 0
+			BNE		FIN_RTI
+			BRA		FIN_TRA
+
+FIN_TRA:		MOVE.B		IMRC,D6				* Pone la copia de IMR en D6
+			BCLR		#0,D6				* Pone el bit 0 de D6 a 0
+			MOVE.B		D6,IMRC				* Actualiza copia IMR
+			MOVE.B		D6,IMR				* Actualiza IMR
+			BRA		FIN_RTI				* Continúa con la RTI
 
 TR_LINB:	MOVE.L		#3,D0				* Inicializa D0 a el buffer de transmisión de la liena B en la pila
 			BSR		LEECAR
-			CMP.L		#-1,D0				* Comprueba si ESCCAR ha fallado
-			BEQ		FIN_RTI				* Acaba la RTI
+			CMP.L		#-1,D0				* Comprueba si LEECAR  ha fallado
+			BEQ		FIN_TRB				* Acaba la transmisión en línea B
 			MOVE.B		D0,TBB				* Pone el caracter leído en la línea de transmisión
-			BRA		BUCLE_RTI			* Continúa con la RTI
+			SUB.L		#1,(TAM_B)			* Reduce la cantidad de caracteres a transmitir por 1
+			CMP.L		#0,(TAM_B)			* Comprueba que la cantidad de caracteres a transmitir son 0
+			BNE		FIN_RTI
+			BRA		FIN_TRB
+
+FIN_TRB:		MOVE.B		IMRC,D6				* Pone la copia IMR en D6
+			BCLR		#4,D6				* Pone el bit 4 de D6 a 0
+			MOVE.B		D6,IMRC				* Actualiza copia IMR
+			MOVE.B		D6,IMR				* Actualiza IMR
+			BRA		FIN_RTI
 
 	
 FIN_RTI:	MOVE.L		(A7)+,D0		* Recupera el valor anterior de D0
@@ -202,15 +247,44 @@ PARTAM:		DC.W 0 * Tama~no que se pasa como par´ametro
 CONTC:		DC.W 0 * Contador de caracteres a imprimir
 DESA:		EQU 0 * Descriptor l´ınea A
 DESB:		EQU 1 * Descriptor l´ınea B
-TAMBS:		EQU 30 * Tama~no de bloque para SCAN
-TAMBP:		EQU 7 * Tama~no de bloque para PRINT
+TAMBS:		EQU 10 * Tama~no de bloque para SCAN
+TAMBP:		EQU 10 * Tama~no de bloque para PRINT
 
-*Tests
+* Manejadores de excepciones
 INICIO:		BSR INIT
-			
-			
+		MOVE.W		#$2000,SR
+		MOVE.W		#TAMBS,PARTAM
+		MOVE.L		#BUFFER,PARDIR
+TEST_SC:	MOVE.W		PARTAM,-(A7)
+		MOVE.W		#DESA,-(A7)
+		MOVE.L		PARDIR,-(A7)
+		BSR		SCAN
+		ADD.L		#8,A7
+		ADD.L		D0,PARDIR
+		SUB.W		D0,PARTAM
+		BNE		TEST_SC
 
+		MOVE.W		#TAMBS,CONTC
+		MOVE.L		#BUFFER,PARDIR
 
+OTRAE:		MOVE.W		#TAMBP,PARTAM
+
+ESPE:		MOVE.W		PARTAM,-(A7)
+		MOVE.W		#DESB,-(A7)
+		MOVE.L		PARDIR,-(A7)
+		BSR		PRINT
+		ADD.L		#8,A7
+		ADD.L		D0,PARDIR
+		SUB.W		D0,CONTC
+		BEQ		SALIR
+		SUB.W		D0,PARTAM
+		BNE		ESPE
+		CMP.W		#TAMBP,CONTC
+		BHI		OTRAE
+		MOVE.W		CONTC,PARTAM
+		BRA		ESPE
+
+SALIR:		BREAK
 **************************** FIN PROGRAMA PRINCIPAL ******************************************
 
 INCLUDE bib_aux.s
