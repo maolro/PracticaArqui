@@ -33,7 +33,7 @@ IMRC	DC.B	0	* Copia IMR para acceder en modo lectura
 **************************** INIT *************************************************************
 INIT:		MOVE.B          #%00000000,ACR      * Velocidad = 38400 bps.
 		MOVE.B          #%00100010,IMR		 * Se habilitan interrupciones en A y B siempre que haya un caracter
-		MOVE.B		#%00100010,IMRC		* Se establece la copia del IMR al mismo valor que el IMR
+		MOVE.B		#%00100010,IMRC		* Se establece la copia del IMR al mismo valor que el IMR para accederlo como lectura
 		MOVE.B		#%01000000,IVR	* Se inicializa el vecto de interrupciones a 40
 		MOVE.L		#RTI,$100			* Inicializa RTI en la tabla de vectores de interrupción
 		* Línea A
@@ -100,14 +100,14 @@ FIN_PR:	MOVE.L		D5,D0	* Se pasa el resultado a D0
 			MOVE.W		#$2700,SR	* Se inhiben las interrupciones
 			CMP.L		#3,D4		* Se comprueba el descriptor para editar el IMR
 			BEQ		IMR_LB
-			BSET		#0,D6		* Se pone el bit 0 a 1
+			BSET		#0,D6		* Se pone el bit 0 a 1 para habilitar transmisiones en la línea A
 			BRA		SETIMR
-IMR_LB:			BSET		#4,D6		* Se pone el bit 4 a 1
-SETIMR:			MOVE.B		D6,IMRC		* Se modifica copia IMR
-			MOVE.B		D6,IMR		* Se modifica IMR
+IMR_LB:			BSET		#4,D6		* Se pone el bit 4 a 1 para habilitar transmisiones en la línea B
+SETIMR:			MOVE.B		D6,IMRC		* Se modifica copia IMR con el valor adecuado según la línea
+			MOVE.B		D6,IMR		* Se modifica IMR para habilitar interrupciones de transmisión 
 			MOVE.W		D7,SR		* Se recupera el valor anterior del SR
 
-NOINT:			UNLK		A6		* Se recupera el valor de la pila
+NOINT:		UNLK		A6		* Se recupera el valor de la pila
 			RTS
 **************************** FIN PRINT ********************************************************
 
@@ -160,69 +160,57 @@ FIN_SC:		MOVE.L		D4,D0		* Coloca la variable caracteres leídos en D0
 
 ****************************** RTI **********************************************************
 
-RTI: 		LINK		A6,#-20
-			MOVE.L		D0,-4(A6)			* Guarda el valor anterior de D0
-			MOVE.L		D1,-8(A6)			* Guarda el valor anterior de D1
-	 		MOVE.L		D2,-12(A6)
-			MOVE.L		D6,-16(A6)
-			MOVE.L		A0,-20(A6)
+RTI: 		MOVEM.L		A1-A5/D0-D7,-(A7)	* Guarda todos los registros en la pila para evitar modificaciones a sus valores
 			MOVE.B		ISR,D2		* Copia el ISR en D2
-			AND.B		IMRC,D2		* Une la copia del IMR con el ISR
+			AND.B		IMRC,D2		* Une la copia del IMR con el ISR para determinar la fuente de la interrupción y si está habilitada
 			BTST		#0,D2				* Comprueba el estado del bit 0 de ISR
-			BNE		TR_LINA
+			BNE		TR_LINA					* Si es 1 entonces está habilitada la transmisión en la línea A y hay interrupción de transmisión
 			BTST		#1,D2				* Comprueba el estado del bit 1 de ISR
-			BNE		RC_LINA
+			BNE		RC_LINA					* Si es 1 entonces está habilitada la recepción en la línea A y hay interrupción de recepción
 			BTST		#4,D2				* Comprueba el estado del bit 4 de ISR
-			BNE		TR_LINB
+			BNE		TR_LINB					* Si es 1 entonces eshtá habilitada la transmisión en la línea B y hay interrupción de transmisión
 			BTST		#5,D2				* Comprueba el estado del bit 5 de ISR
-			BNE		RC_LINB
+			BNE		RC_LINB					
 			BRA		FIN_RTI				* Acaba la RTI
 			
-RC_LINA:	CLR.B		D1
-			MOVE.B		RBA,D1				* Pone el caracter leído en D1 para su futuro uso
+RC_LINA:	MOVE.B		RBA,D1				* Pone el caracter leído en D1 para su futuro uso en ESCCAR
 			CLR.L		D0					* Inicializa D0 a todo ceros
-			BSR		ESCCAR
-			BRA		FIN_RTI				* Acaba la RTI
+			BSR			ESCCAR			* Ejecuta la subrutina ESCCAR para añadir el caracter leído a los búferes internos
+			BRA		FIN_RTI				* Acaba la RTI tenga éxito o falle (ya que si falla no se añade el caracter de todas formas)
 			
-RC_LINB:	CLR.B		D1
-			MOVE.B		RBB,D1				* Pone el caracter leído en la Pila
-			MOVE.L		#1,D0				* Pone D0 a 1 para su futuro uso
-			BSR		ESCCAR
-			BRA		FIN_RTI				* Acaba la RTI
+RC_LINB:	MOVE.B		RBB,D1				* Pone el caracter leído en D1 para su futuro uso en ESCCAR
+			MOVE.L		#1,D0				* Pone D0 a 1 para su futuro uso como descriptor en ESSCAR
+			BSR		ESCCAR				* Ejecuta la subrutina ESCCAR para añadir el caracter leído a los búferes internos
+			BRA		FIN_RTI				* Acaba la RTI tenga éxito o falle (ya que si falla no se añade el caracter de todas formas)
 			
 TR_LINA:	MOVE.L		#2,D0				* Inicializa D0 a el buffer de transmisión de la linea A
 			BSR		LEECAR
 			CMP.L		#-1,D0				* Comprueba si LEECAR  ha fallado
-			BEQ		FIN_TRA				* Acaba la transmisión en línea A
+			BEQ		FIN_TRA					* Acaba la transmisión en línea A ya que no hay caracteres para leer
 			MOVE.B		D0,TBA				* Pone el caracter leído en la línea de transmisión
-			BNE		FIN_RTI
+			BNE		FIN_RTI				* Acaba la RTI
 
-FIN_TRA:		MOVE.B		IMRC,D6				* Pone la copia de IMR en D6
+FIN_TRA:		MOVE.B		IMRC,D6				* Pone la copia de IMR en D6 (ya que el IMR no puede leerse)
 			BCLR		#0,D6				* Pone el bit 0 de D6 a 0
-			MOVE.B		D6,IMRC				* Actualiza copia IMR
-			MOVE.B		D6,IMR				* Actualiza IMR
-			BRA		FIN_RTI				* Continúa con la RTI
+			MOVE.B		D6,IMRC				* Actualiza copia IMR para  indicar que las interrupciones de transmisión están desactivadas
+			MOVE.B		D6,IMR				* Actualiza IMR para desactivar interrupciones de transmisión
+			BRA		FIN_RTI				* Acaba la RTI
 
 TR_LINB:	MOVE.L		#3,D0				* Inicializa D0 a el buffer de transmisión de la liena B en la pila
 			BSR		LEECAR
 			CMP.L		#-1,D0				* Comprueba si LEECAR  ha fallado
 			BEQ		FIN_TRB				* Acaba la transmisión en línea B
 			MOVE.B		D0,TBB				* Pone el caracter leído en la línea de transmisión
-			BRA		FIN_RTI
+			BRA		FIN_RTI				* Acaba la RTI
 
-FIN_TRB:		MOVE.B		IMRC,D6				* Pone la copia IMR en D6
+FIN_TRB:		MOVE.B		IMRC,D6				* Pone la copia IMR en D6 (ya que el IMR no puede leerse)
 			BCLR		#4,D6				* Pone el bit 4 de D6 a 0
-			MOVE.B		D6,IMRC				* Actualiza copia IMR
-			MOVE.B		D6,IMR				* Actualiza IMR
-			BRA		FIN_RTI
+			MOVE.B		D6,IMRC				* Actualiza copia IMR para indicar que las interrupciones de transmisión están desactivadas
+			MOVE.B		D6,IMR				* Actualiza IMR para desactivar interrupciones de transmisión
+			BRA		FIN_RTI				* Acaba la RTI
 
 	
-FIN_RTI:	MOVE.L		-4(A6),D0		* Recupera el valor anterior de D0
-			MOVE.L		-8(A6),D1		* Recupera el valor anterior de D1			
-			MOVE.L		-12(A6),D2
-			MOVE.L		-16(A6),D6
-			MOVE.L		-20(A6),A0
-			UNLK		A6
+FIN_RTI:	MOVEM.L (A7)+,A0-A6/D0-D7	* Recupera todos los registros
 			RTE
 
 
