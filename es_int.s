@@ -210,7 +210,7 @@ FIN_TRB:		MOVE.B		IMRC,D6				* Pone la copia IMR en D6 (ya que el IMR no puede l
 			BRA		FIN_RTI				* Acaba la RTI
 
 	
-FIN_RTI:	MOVEM.L (A7)+,A0-A6/D0-D7	* Recupera todos los registros
+FIN_RTI:	MOVEM.L (A7)+,A1-A5/D0-D7	* Recupera todos los registros
 			RTE
 
 
@@ -234,7 +234,7 @@ TAMBP:		EQU 10 * Tama~no de bloque para PRINT
 * Manejadores de excepciones
 INICIO:		BSR INIT
 		MOVE.W		#$2000,SR
-		MOVE.W		#TAMBS,PARTAM
+TEST_PR:	MOVE.W		#TAMBS,PARTAM
 		MOVE.L		#BUFFER,PARDIR
 TEST_SC:	MOVE.W		PARTAM,-(A7)
 		MOVE.W		#DESA,-(A7)
@@ -257,7 +257,7 @@ ESPE:		MOVE.W		PARTAM,-(A7)
 		ADD.L		#8,A7
 		ADD.L		D0,PARDIR
 		SUB.W		D0,CONTC
-		BEQ		SALIR
+		BEQ		TEST_PR
 		SUB.W		D0,PARTAM
 		BNE		ESPE
 		CMP.W		#TAMBP,CONTC
@@ -265,7 +265,6 @@ ESPE:		MOVE.W		PARTAM,-(A7)
 		MOVE.W		CONTC,PARTAM
 		BRA		ESPE
 
-SALIR:		BREAK
 **************************** FIN PROGRAMA PRINCIPAL ******************************************
 
 INCLUDE bib_aux.s
