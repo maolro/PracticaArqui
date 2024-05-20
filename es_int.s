@@ -229,7 +229,7 @@ CONTC:		DC.W 0 * Contador de caracteres a imprimir
 DESA:		EQU 0 * Descriptor l´ınea A
 DESB:		EQU 1 * Descriptor l´ınea B
 TAMBS:		EQU 10 * Tama~no de bloque para SCAN
-TAMBP:		EQU 10 * Tama~no de bloque para PRINT
+TAMBP:		EQU 5 * Tama~no de bloque para PRINT
 
 * Manejadores de excepciones
 INICIO:		BSR INIT
